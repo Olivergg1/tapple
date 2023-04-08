@@ -1,0 +1,3 @@
+[submodule "client/src/solid-media"]
+	path = client/src/solid-media
+	url = olivergg1:Olivergg1/solid-media
