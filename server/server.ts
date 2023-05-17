@@ -93,11 +93,26 @@ let timeout: NodeJS.Timeout | undefined = undefined
 interface IGame {
   players: Player[]
   host?: Player
+  turn?: Player
+  turnIndex: number | 0
 }
 
 const Game: IGame = {
   players: [],
   host: undefined,
+  turn: undefined,
+  turnIndex: 0
+}
+
+// Returns the index to a random player
+const getRandomPlayer = (): number => {
+  return Math.round(Math.random() * (Game.players.length - 1))
+}
+
+const setTurn = (index: number) => {
+  Game.turn = Game.players[index]
+  Game.turnIndex = index
+  console.log(`It is now ${Game.turn.username}'s turn`)
 }
 
 const getPlayer = (id: string) => {
@@ -125,7 +140,7 @@ IOServer.on('connection', (client) => {
   console.log('a user connected', client.id)
 
   client.on('name:set', (username) => {
-    const player = { username, id: client.id, avatar: assignAvatar() }
+    const player: Player = { username, id: client.id, avatar: assignAvatar() }
 
     console.log(player)
     Game.players.push(player)
@@ -150,9 +165,6 @@ IOServer.on('connection', (client) => {
     // Check whether the request is sent from a host
     if (isHost(client.id) === false) return
 
-    // Notify players by changing game state
-    IOServer.emit('game:state', { state: 'running' })
-
     // Start game timer
     startTimer(min, max, () => {
       IOServer.emit('game:state', { state: 'ended' })
@@ -161,12 +173,28 @@ IOServer.on('connection', (client) => {
         clearTimeout(t)
       }, 5000)
     })
+
+
+    // Notify players by changing game state
+    IOServer.emit('game:state', { state: 'running' })
+
+    // TODO: change for better error handling!
+    const indexOfPlayer = getRandomPlayer()
+    setTurn(indexOfPlayer)
+    IOServer.emit("game:turn", Game.turn)
   })
 
+  const nextPlayer = (): number => (Game.turnIndex += 1) % Game.players.length
+
   client.on('click:source', (msg) => {
-    console.log(client.id, 'clicked something')
-    sendMessage(`${getPlayer(client.id)} clicked on ${msg.letter}`)
+    console.log(msg)
+    // Skip if click is not from turn
+    if (client.id !== Game.turn?.id) return
+
+    // Set turn to next player
+    setTurn(nextPlayer())
     client.broadcast.emit('click:target', { id: msg.id, source: client.id })
+    IOServer.emit("game:turn", Game.turn)
   })
 
   client.on('reset:source', () => {
@@ -175,13 +203,15 @@ IOServer.on('connection', (client) => {
   })
 
   client.on('disconnect', () => {
-    sendMessage(`${getPlayer(client.id)} left the game`)
+    sendMessage(`${getPlayer(client.id)?.username} left the game`)
     const [deletedPlayer] = Game.players.splice(
       Game.players.findIndex((player) => player.id === client.id),
       1
     )
 
-    client.emit('lobby:player_left', deletedPlayer)
+    console.log(Game.players)
+
+    client.broadcast.emit('lobby:player_left', deletedPlayer)
 
     if (deletedPlayer !== undefined && isHost(deletedPlayer.id)) {
       if (Object.keys(Game.players).length !== 0) {
